@@ -1,0 +1,32 @@
+name: Deploy Static Info Page to GitHub Pages
+
+# CATATAN PENTING:
+# GitHub Pages hanya bisa menyajikan file statis (HTML/CSS/JS), TIDAK ADA server backend.
+# Karena itu fitur dinamis (buat ujian, short URL dengan expiry, simpan hasil, dsb) TIDAK BISA
+# berjalan di GitHub Pages. Workflow ini hanya men-deploy halaman informasi/tutorial statis
+# yang ada di folder docs/. Untuk ujian yang sesungguhnya, gunakan VPS/Hosting Node.js atau Vercel.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+      - id: deployment
+        uses: actions/deploy-pages@v4
