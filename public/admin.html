@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Admin — Xayz Exam</title>
+<link rel="stylesheet" href="/css/style.css" />
+<script src="/js/icons.js"></script>
+</head>
+<body>
+  <div class="navbar">
+    <div class="brand"><span class="dot"></span> XAYZ EXAM · ADMIN</div>
+    <div><a href="/index.html" class="btn">Ke Halaman Utama</a></div>
+  </div>
+
+  <div class="container">
+    <!-- Login gate -->
+    <div class="card" id="login-card" style="max-width:400px;margin:60px auto">
+      <h2>Masuk Admin</h2>
+      <div class="field">
+        <label>Password</label>
+        <input class="input" id="login-pass" type="password" placeholder="Password admin" />
+      </div>
+      <button class="btn btn-primary btn-block" onclick="doLogin()">Masuk</button>
+      <p id="login-error" style="color:var(--red);font-size:13px"></p>
+    </div>
+
+    <!-- Admin content -->
+    <div id="admin-content" style="display:none">
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Buat Ujian Baru</h2>
+          <div class="field">
+            <label>Judul Ujian</label>
+            <input class="input" id="exam-title" placeholder="Ujian Matematika Kelas 10" />
+          </div>
+          <div class="field">
+            <label>Durasi (menit)</label>
+            <input class="input" id="exam-duration" type="number" value="30" />
+          </div>
+          <div class="field">
+            <label>Batas Pelanggaran (auto diskualifikasi)</label>
+            <input class="input" id="exam-violation" type="number" value="3" />
+          </div>
+          <div class="field">
+            <label>Sumber Soal</label>
+            <select class="input" id="exam-type" onchange="toggleExamType()">
+              <option value="quiz">Soal JSON (dinilai otomatis oleh sistem ini)</option>
+              <option value="embed">Mode ExamBro — Wrap URL Luar (Google Form, Quizizz, Kahoot, dll)</option>
+            </select>
+          </div>
+          <div class="field" id="exam-quiz-field">
+            <label>Soal (JSON array) — opsional, kosongkan untuk soal contoh</label>
+            <textarea class="input" id="exam-questions" rows="6" placeholder='[{"text":"2+2=?","options":["3","4","5"],"correctIndex":1}]'></textarea>
+          </div>
+          <div class="field" id="exam-embed-field" style="display:none">
+            <label>URL Google Form / Quizizz / Situs Lain</label>
+            <input class="input" id="exam-embed-url" placeholder="https://docs.google.com/forms/d/e/xxxxx/viewform?embedded=true" />
+            <p style="font-size:12px;color:var(--text-dim);margin-top:6px">
+              Untuk Google Form: buka form Anda → Kirim (Send) → tab embed (&lt;&gt;) → salin URL dari kode embed (biasanya berakhiran <code>?embedded=true</code>).
+              Sistem ini <strong>tidak bisa menilai otomatis</strong> jawaban dari form eksternal — penilaian tetap dilakukan di Google Form/sistem eksternal itu sendiri.
+            </p>
+            <button type="button" class="btn" style="margin-top:8px" onclick="testEmbed()">Test Embed (cek dulu sebelum dibagikan)</button>
+            <p id="embed-test-status" style="font-size:12px;margin-top:6px"></p>
+            <div id="embed-preview-wrap" style="display:none;margin-top:8px">
+              <iframe id="embed-preview" style="width:100%;height:340px;border:1px solid var(--border);border-radius:10px;background:#fff"></iframe>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" onclick="createExam()">Buat Ujian</button>
+          <p id="exam-msg" style="font-size:13px"></p>
+        </div>
+
+        <div class="card">
+          <h2>Buat Short URL</h2>
+          <div class="field">
+            <label>Pilih Ujian</label>
+            <select class="input" id="su-exam"></select>
+          </div>
+          <div class="field">
+            <label>Mode Batas Waktu</label>
+            <select class="input" id="su-mode" onchange="toggleSuMode()">
+              <option value="duration">Durasi dari sekarang (jam)</option>
+              <option value="range">Rentang tanggal/waktu tertentu</option>
+            </select>
+          </div>
+          <div class="field" id="su-duration-field">
+            <label>Berlaku selama (jam)</label>
+            <input class="input" id="su-hours" type="number" value="24" />
+          </div>
+          <div class="field" id="su-range-field" style="display:none">
+            <label>Mulai</label>
+            <input class="input" id="su-start" type="datetime-local" />
+            <label style="margin-top:8px">Sampai</label>
+            <input class="input" id="su-end" type="datetime-local" />
+          </div>
+          <button class="btn btn-gold btn-block" onclick="createShortUrl()">Generate Short URL</button>
+          <div id="su-result" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Daftar Ujian & Short URL</h2>
+        <div id="exam-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>Hasil Peserta</h2>
+        <div class="field" style="max-width:320px">
+          <label>Pilih Ujian</label>
+          <select class="input" id="res-exam" onchange="loadResults()"></select>
+        </div>
+        <div id="results-list"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+async function doLogin() {
+  const pass = document.getElementById('login-pass').value;
+  const res = await fetch('/api/admin/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ password: pass }) });
+  const data = await res.json();
+  if (data.ok) { init(); } else { document.getElementById('login-error').textContent = 'Password salah.'; }
+}
+
+async function init() {
+  const who = await (await fetch('/api/admin/whoami')).json();
+  if (!who.isAdmin) return;
+  document.getElementById('login-card').style.display = 'none';
+  document.getElementById('admin-content').style.display = 'block';
+  await refreshExams();
+}
+
+let examsCache = [];
+async function refreshExams() {
+  const data = await (await fetch('/api/exams')).json();
+  examsCache = data.exams || [];
+  const suSelect = document.getElementById('su-exam');
+  const resSelect = document.getElementById('res-exam');
+  suSelect.innerHTML = examsCache.map(e => `<option value="${e.id}">${e.title}</option>`).join('');
+  resSelect.innerHTML = examsCache.map(e => `<option value="${e.id}">${e.title}</option>`).join('');
+
+  const listEl = document.getElementById('exam-list');
+  listEl.innerHTML = examsCache.map(e => `
+    <div class="card card-tight" style="margin-bottom:10px">
+      <strong>${e.title}</strong> <span class="badge">${e.type === 'embed' ? 'Embed URL' : 'Soal JSON'}</span> <span class="badge">${e.durationMinutes} menit</span> <span class="badge">Batas pelanggaran: ${e.violationLimit}</span>
+      <div style="color:var(--text-dim);font-size:12px;margin-top:4px">ID: ${e.id}</div>
+    </div>
+  `).join('') || '<p>Belum ada ujian.</p>';
+
+  if (examsCache.length) loadResults();
+}
+
+function toggleSuMode() {
+  const mode = document.getElementById('su-mode').value;
+  document.getElementById('su-duration-field').style.display = mode === 'duration' ? 'block' : 'none';
+  document.getElementById('su-range-field').style.display = mode === 'range' ? 'block' : 'none';
+}
+
+function testEmbed() {
+  const url = document.getElementById('exam-embed-url').value.trim();
+  const statusEl = document.getElementById('embed-test-status');
+  if (!/^https?:\/\//i.test(url)) { statusEl.style.color='var(--red)'; statusEl.textContent = 'Isi URL yang valid dulu.'; return; }
+
+  statusEl.style.color = 'var(--text-dim)';
+  statusEl.textContent = 'Memuat pratinjau...';
+  document.getElementById('embed-preview-wrap').style.display = 'block';
+  const frame = document.getElementById('embed-preview');
+  frame.src = url;
+
+  // CATATAN JUJUR: browser tidak mengizinkan JS membaca status sukses/gagal iframe cross-origin
+  // secara pasti (situs yang memblokir framing biasanya tetap memicu event 'load' untuk halaman
+  // error bawaan browser). Jadi kami TIDAK mengklaim deteksi otomatis 100% akurat — silakan
+  // periksa pratinjau di atas dengan mata Anda sendiri.
+  setTimeout(() => {
+    statusEl.textContent = 'Periksa pratinjau di atas: jika kosong/putih atau muncul pesan "refused to connect", situs ini memblokir iframe dan TIDAK bisa dipakai mode ExamBro (gunakan Soal JSON sebagai gantinya). Jika kontennya tampil normal, aman digunakan.';
+  }, 1500);
+}
+
+function toggleExamType() {
+  const type = document.getElementById('exam-type').value;
+  document.getElementById('exam-quiz-field').style.display = type === 'quiz' ? 'block' : 'none';
+  document.getElementById('exam-embed-field').style.display = type === 'embed' ? 'block' : 'none';
+}
+
+async function createExam() {
+  const title = document.getElementById('exam-title').value.trim();
+  const durationMinutes = document.getElementById('exam-duration').value;
+  const violationLimit = document.getElementById('exam-violation').value;
+  const type = document.getElementById('exam-type').value;
+  const msgEl = document.getElementById('exam-msg');
+  if (!title) { msgEl.style.color = 'var(--red)'; msgEl.textContent = 'Judul wajib diisi.'; return; }
+
+  let payload = { title, durationMinutes, violationLimit, type };
+
+  if (type === 'embed') {
+    const embedUrl = document.getElementById('exam-embed-url').value.trim();
+    if (!/^https?:\/\//i.test(embedUrl)) { msgEl.style.color='var(--red)'; msgEl.textContent = 'URL embed tidak valid.'; return; }
+    payload.embedUrl = embedUrl;
+  } else {
+    let questions = [];
+    const raw = document.getElementById('exam-questions').value.trim();
+    if (raw) {
+      try { questions = JSON.parse(raw); } catch (e) { msgEl.style.color='var(--red)'; msgEl.textContent = 'Format JSON soal tidak valid.'; return; }
+    } else {
+      questions = [{ text: 'Contoh: 5 + 7 = ?', options: ['10','12','13'], correctIndex: 1 }];
+    }
+    payload.questions = questions;
+  }
+
+  const res = await fetch('/api/exams', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+  const data = await res.json();
+  if (data.ok) {
+    msgEl.style.color = 'var(--green)'; msgEl.textContent = 'Ujian dibuat: ' + data.exam.id;
+    document.getElementById('exam-title').value = '';
+    await refreshExams();
+  } else {
+    msgEl.style.color = 'var(--red)'; msgEl.textContent = data.error;
+  }
+}
+
+async function createShortUrl() {
+  const examId = document.getElementById('su-exam').value;
+  const mode = document.getElementById('su-mode').value;
+  let window_;
+  if (mode === 'duration') {
+    window_ = { mode: 'duration', hours: Number(document.getElementById('su-hours').value) };
+  } else {
+    window_ = { mode: 'range', startAt: document.getElementById('su-start').value, endAt: document.getElementById('su-end').value };
+  }
+  const res = await fetch('/api/shorturls', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ examId, window: window_ }) });
+  const data = await res.json();
+  const resultEl = document.getElementById('su-result');
+  if (data.ok) {
+    resultEl.innerHTML = `
+      <div class="card card-tight">
+        <div style="font-family:monospace;word-break:break-all">${data.absoluteUrl}</div>
+        <button class="btn" style="margin-top:8px" onclick="navigator.clipboard.writeText('${data.absoluteUrl}')">Copy URL</button>
+      </div>`;
+  } else {
+    resultEl.innerHTML = `<p style="color:var(--red)">${data.error}</p>`;
+  }
+}
+
+async function loadResults() {
+  const examId = document.getElementById('res-exam').value;
+  if (!examId) return;
+  const data = await (await fetch('/api/results/' + examId)).json();
+  const el = document.getElementById('results-list');
+  const results = data.results || [];
+  el.innerHTML = results.length ? results.map(r => `
+    <div class="card card-tight" style="margin-bottom:8px">
+      <strong>${r.userLabel}</strong> — Skor: ${r.score ? r.score.correct + '/' + r.score.total + ' (' + r.score.percent + '%)' : '-'}
+      <div style="font-size:12px;color:var(--text-dim)">Submit: ${new Date(r.submittedAt).toLocaleString('id-ID')}</div>
+    </div>
+  `).join('') : '<p>Belum ada peserta yang submit.</p>';
+}
+
+(async () => {
+  const who = await (await fetch('/api/admin/whoami')).json();
+  if (who.isAdmin) init();
+})();
+</script>
+</body>
+</html>

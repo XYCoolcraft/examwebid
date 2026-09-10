@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sedang Ujian — Xayz Exam</title>
+<link rel="stylesheet" href="/css/style.css" />
+<script src="/js/icons.js"></script>
+</head>
+<body>
+
+  <!-- Gate: minta fullscreen sebelum ujian dimulai -->
+  <div class="gate-overlay" id="gate">
+    <div class="gate-box">
+      <h2 id="gate-title">Siap Memulai Ujian?</h2>
+      <p>Ujian ini WAJIB dikerjakan dalam mode fullscreen. Jika Anda keluar dari fullscreen selama ujian berlangsung, sesi akan otomatis dianggap selesai/dicurangi dan Anda dikembalikan ke halaman utama.</p>
+      <button class="btn btn-primary" id="btn-start" style="margin-top:10px">Masuk Fullscreen & Mulai</button>
+      <p id="gate-error" style="color:var(--red);margin-top:10px"></p>
+    </div>
+  </div>
+
+  <!-- Dashboard bar -->
+  <div class="dash-bar" id="dash-bar" style="display:none"></div>
+
+  <div class="container" id="exam-container" style="display:none">
+    <div class="card">
+      <h2 id="exam-title">Memuat ujian...</h2>
+      <div id="violation-badge"></div>
+    </div>
+    <div id="embed-wrap" style="display:none">
+      <div class="card card-tight" style="padding:8px">
+        <iframe id="embed-frame" style="width:100%;height:75vh;border:0;border-radius:12px;background:#fff" allow="camera; microphone"></iframe>
+      </div>
+      <p style="font-size:12.5px;color:var(--text-dim);margin-top:8px">
+        Konten di atas dimuat dari situs eksternal (mis. Google Form/Quizizz) di dalam frame — Anda tetap berada di halaman ujian ini.
+        Jawaban pada form/kuis eksternal tersimpan di sistem eksternal tersebut, bukan di server ujian ini.
+        Jika area di atas kosong, kemungkinan situs tujuan memblokir tampilan iframe — hubungi pengawas/admin.
+      </p>
+    </div>
+    <div id="questions"></div>
+    <button class="btn btn-gold btn-block" id="btn-submit" style="margin-top:10px">Submit Jawaban</button>
+  </div>
+
+  <!-- Popup waktu habis / diskualifikasi -->
+  <div class="gate-overlay" id="popup" style="display:none">
+    <div class="gate-box">
+      <h2 id="popup-title">Waktu Habis</h2>
+      <p id="popup-text">Jawaban Anda telah dikirim otomatis. Halaman akan dimuat ulang.</p>
+    </div>
+  </div>
+
+<script src="/js/dashboard.js"></script>
+<script src="/js/exam-guard.js"></script>
+<script>
+const token = new URLSearchParams(window.location.search).get('token');
+let examData = null;
+let guard = null;
+let timer = null;
+
+if (!token) {
+  document.getElementById('gate-error').textContent = 'Token sesi tidak ditemukan.';
+} else {
+  document.getElementById('btn-start').addEventListener('click', startExam);
+}
+
+async function startExam() {
+  const errEl = document.getElementById('gate-error');
+  try {
+    const root = document.documentElement;
+    const req = root.requestFullscreen || root.webkitRequestFullscreen || root.msRequestFullscreen;
+    await req.call(root);
+  } catch (e) {
+    errEl.textContent = 'Browser menolak fullscreen: ' + e.message;
+    return;
+  }
+
+  const res = await fetch('/api/session/' + token);
+  const data = await res.json();
+  if (!data.ok) { errEl.textContent = 'Sesi tidak valid atau kedaluwarsa.'; return; }
+  examData = data;
+
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('dash-bar').style.display = 'flex';
+  document.getElementById('exam-container').style.display = 'block';
+  initDashboard(document.getElementById('dash-bar'));
+
+  document.getElementById('exam-title').textContent = data.exam.title;
+
+  if (data.exam.type === 'embed') {
+    document.getElementById('embed-wrap').style.display = 'block';
+    document.getElementById('embed-frame').src = data.exam.embedUrl;
+    document.getElementById('btn-submit').textContent = 'Selesai / Saya Sudah Mengisi';
+  } else {
+    renderQuestions(data.exam.questions, data.session.answers || {});
+  }
+
+  guard = initExamGuard({
+    token,
+    onDisqualified: () => showPopup('Anda Didiskualifikasi', 'Batas pelanggaran terlampaui. Sesi ujian dihentikan.', true),
+  });
+
+  timer = initExamTimer({
+    remainingMs: data.remainingMs,
+    onExpire: () => submitExam(true),
+  });
+
+  document.getElementById('btn-submit').addEventListener('click', () => submitExam(false));
+}
+
+function renderQuestions(questions, savedAnswers) {
+  const wrap = document.getElementById('questions');
+  wrap.innerHTML = questions.map((q, idx) => `
+    <div class="question-card">
+      <div class="question-title">${idx + 1}. ${escapeHtml(q.text)}</div>
+      ${q.options.map((opt, i) => `
+        <label class="option ${savedAnswers[q.id] === i ? 'selected' : ''}" data-q="${q.id}" data-i="${i}">
+          <input type="radio" name="q-${q.id}" value="${i}" ${savedAnswers[q.id] === i ? 'checked' : ''} />
+          ${escapeHtml(opt)}
+        </label>
+      `).join('')}
+    </div>
+  `).join('');
+
+  wrap.querySelectorAll('.option').forEach((el) => {
+    el.addEventListener('click', () => {
+      const qId = el.dataset.q;
+      const i = Number(el.dataset.i);
+      wrap.querySelectorAll(`.option[data-q="${qId}"]`).forEach((o) => o.classList.remove('selected'));
+      el.classList.add('selected');
+      fetch(`/api/session/${token}/answer`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ questionId: qId, answerIndex: i }),
+      });
+    });
+  });
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function submitExam(isAutoExpire) {
+  if (timer) timer.stop();
+  const res = await fetch(`/api/session/${token}/submit`, { method: 'POST' });
+  const data = await res.json();
+  showPopup(
+    isAutoExpire ? 'Waktu Habis' : 'Ujian Selesai',
+    data.score ? `Skor Anda: ${data.score.correct}/${data.score.total} (${data.score.percent}%)` : 'Jawaban telah dikirim.',
+    true
+  );
+}
+
+function showPopup(title, text, reload) {
+  document.getElementById('popup-title').textContent = title;
+  document.getElementById('popup-text').textContent = text;
+  document.getElementById('popup').style.display = 'flex';
+  if (reload) setTimeout(() => { window.location.href = '/index.html'; }, 3500);
+}
+</script>
+</body>
+</html>

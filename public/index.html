@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Xayz Exam — Portal Ujian Online</title>
+<link rel="stylesheet" href="/css/style.css" />
+<script src="/js/icons.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+</head>
+<body>
+  <div class="navbar">
+    <div class="brand"><span class="dot"></span> XAYZ EXAM</div>
+    <div><a href="/admin.html" class="btn">Masuk Admin</a></div>
+  </div>
+
+  <div class="container">
+    <div class="card" style="text-align:center;padding:40px 24px">
+      <h1 style="font-size:32px">Portal Ujian Online</h1>
+      <p>Masukkan kode/URL ujian, atau scan QR yang diberikan pengawas.</p>
+
+      <div class="tab-switch" style="max-width:360px;margin:20px auto 0">
+        <button class="btn active" id="tab-url" onclick="showTab('url')">Masukkan URL</button>
+        <button class="btn" id="tab-qr" onclick="showTab('qr')">Scan QR</button>
+      </div>
+
+      <div id="panel-url" style="max-width:420px;margin:20px auto 0">
+        <div class="field">
+          <input class="input" id="url-input" placeholder="Kode ujian atau URL lengkap (mis. https://.../s/AbCd1234)" />
+        </div>
+        <button class="btn btn-primary btn-block" onclick="goToUrl()">Masuk Ujian</button>
+        <p id="url-error" style="color:var(--red);font-size:13px"></p>
+      </div>
+
+      <div id="panel-qr" style="max-width:420px;margin:20px auto 0;display:none">
+        <div class="qr-video-wrap">
+          <video id="qr-video" muted playsinline></video>
+          <div class="qr-scan-box"></div>
+        </div>
+        <canvas id="qr-canvas" style="display:none"></canvas>
+        <p id="qr-status" style="font-size:13px">Arahkan kamera ke kode QR...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Cara Menggunakan</h2>
+      <ol style="color:var(--text-dim);line-height:1.8">
+        <li>Dapatkan kode/URL ujian atau QR dari pengawas/admin.</li>
+        <li>Masuk lewat tab "Masukkan URL" atau "Scan QR" di atas.</li>
+        <li>Anda akan diminta masuk mode <strong>fullscreen</strong> sebelum ujian dimulai — ini wajib.</li>
+        <li>Jika Anda keluar dari fullscreen selama ujian, sistem otomatis mendeteksi dan mengeluarkan Anda dari sesi ujian (dianggap sebagai indikasi kecurangan).</li>
+        <li>Timer akan berjalan di bagian atas. Saat waktu habis, jawaban otomatis dikirim.</li>
+        <li>Kerjakan sejujurnya — sistem mencatat pelanggaran (keluar tab, keluar fullscreen, dll) dan bisa mendiskualifikasi jika melewati batas.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>Syarat & Ketentuan (TOS) / Aturan Ujian</h2>
+      <ul style="color:var(--text-dim);line-height:1.8">
+        <li>Sistem ini mencatat pelanggaran seperti keluar fullscreen, pindah tab, dan mencoba menyalin konten. Pelanggaran berulang dapat mendiskualifikasi peserta secara otomatis.</li>
+        <li><strong>Batasan jujur:</strong> sistem ini TIDAK dapat mencegah screenshot atau screen recording tingkat sistem operasi, dan tidak dapat mendeteksi ekstensi browser pihak ketiga. Fitur "anti-copy" dan "blok klik kanan" adalah pencegah tingkat tampilan, bukan proteksi mutlak.
+        <li>Data yang dikumpulkan: waktu mulai/selesai, jawaban, dan log pelanggaran (jenis & waktu). Tidak ada rekaman audio/video/layar yang diambil oleh sistem ini.</li>
+        <li>Short URL ujian memiliki batas waktu (durasi atau rentang tanggal tertentu) yang ditentukan admin. Setelah kedaluwarsa, tautan tidak bisa dipakai lagi.</li>
+        <li>Login Google (jika diaktifkan admin) hanya dipakai untuk identifikasi nama/email peserta, dan Anda akan selalu diarahkan balik ke domain ujian ini, tidak pernah ke situs lain.</li>
+      </ul>
+    </div>
+
+    <p class="footer-note">Xayz Exam — dibangun dengan Node.js + Express. Lihat README untuk dokumentasi lengkap.</p>
+  </div>
+
+<script>
+function showTab(which) {
+  document.getElementById('panel-url').style.display = which === 'url' ? 'block' : 'none';
+  document.getElementById('panel-qr').style.display = which === 'qr' ? 'block' : 'none';
+  document.getElementById('tab-url').classList.toggle('active', which === 'url');
+  document.getElementById('tab-qr').classList.toggle('active', which === 'qr');
+  if (which === 'qr') startQr();
+}
+
+function goToUrl() {
+  const val = document.getElementById('url-input').value.trim();
+  const errEl = document.getElementById('url-error');
+  if (!val) { errEl.textContent = 'Masukkan kode atau URL dulu.'; return; }
+  try {
+    let target;
+    if (/^https?:\/\//i.test(val)) {
+      const u = new URL(val);
+      if (u.origin !== window.location.origin) {
+        errEl.textContent = 'URL harus di domain ujian ini.';
+        return;
+      }
+      target = u.pathname;
+    } else {
+      target = '/s/' + val.replace(/^\/+/, '');
+    }
+    window.location.href = target;
+  } catch (e) {
+    errEl.textContent = 'Format URL tidak valid.';
+  }
+}
+
+let qrStarted = false;
+async function startQr() {
+  if (qrStarted) return;
+  qrStarted = true;
+  const statusEl = document.getElementById('qr-status');
+  try {
+    await startQrScanner({
+      videoEl: document.getElementById('qr-video'),
+      canvasEl: document.getElementById('qr-canvas'),
+      allowedOrigin: window.location.origin,
+      onResult: (res) => {
+        if (res.ok) {
+          statusEl.textContent = 'QR terdeteksi, mengarahkan...';
+          window.location.href = res.url;
+        } else {
+          statusEl.textContent = 'QR ditolak: harus mengarah ke domain ujian ini.';
+        }
+      },
+    });
+  } catch (e) {
+    statusEl.textContent = 'Tidak bisa mengakses kamera: ' + e.message;
+  }
+}
+</script>
+<script src="/js/qr-scanner.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tautan Tidak Valid — Xayz Exam</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="container" style="max-width:480px;margin-top:100px;text-align:center">
+    <div class="card">
+      <h2 id="title">Tautan Tidak Valid</h2>
+      <p id="text">Short URL ujian ini tidak ditemukan, belum aktif, atau sudah kedaluwarsa.</p>
+      <a href="/index.html" class="btn btn-primary">Kembali ke Halaman Utama</a>
+    </div>
+  </div>
+<script>
+const reason = new URLSearchParams(window.location.search).get('reason');
+const map = {
+  not_found: ['Tautan Tidak Ditemukan', 'Kode ujian ini tidak ada dalam sistem.'],
+  not_started: ['Belum Dibuka', 'Ujian ini belum memasuki jendela waktu yang ditentukan admin.'],
+  expired: ['Sudah Kedaluwarsa', 'Batas waktu tautan ujian ini sudah berakhir.'],
+  exam_missing: ['Ujian Tidak Ditemukan', 'Data ujian terkait tautan ini sudah tidak ada.'],
+};
+if (reason && map[reason]) {
+  document.getElementById('title').textContent = map[reason][0];
+  document.getElementById('text').textContent = map[reason][1];
+}
+</script>
+</body>
+</html>
